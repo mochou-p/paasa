@@ -1,0 +1,9 @@
+#
+
+[package]
+name    = "temp"
+edition = "2024"
+authors = ["mochou-p"]
+readme  = "README.md"
+license = "MIT OR Apache-2.0"
+
