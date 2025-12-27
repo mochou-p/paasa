@@ -2,15 +2,12 @@
 
 #[cfg(feature = "rust")]
 mod rust_tests {
-    use temp::rust::{tokenise_line, Token};
+    use temp::rust::{parse, Token::*};
 
     #[test]
     fn rust_test_001() {
-        let line        = "pub fn test::<T>(&mut self, lol: &u8, lmao: Vec<Vec<T>>) { // :D :O";
-        let tokens      = tokenise_line(line);
-        let expectation = {
-            use Token::*;
-
+        assert_eq!(
+            parse("pub fn test::<T>(&mut self, lol: &u8, lmao: Vec<Vec<T>>) {// :D :D\n}\nfn f() {}"),
             vec![
                 /* pub fn test       */ Pub, Fn, FnName,
                 /* ::<T>             */ DoubleColon, GenericStart, Type, GenericEnd,
@@ -19,11 +16,10 @@ mod rust_tests {
                 /* lol:  &u8         */ VarName, Colon, Reference, Type, Comma,
                 /* lmao: Vec<Vec<T>> */ VarName, Colon, Type, GenericStart, Type, GenericStart, Type, GenericEnd, GenericEnd,
                 /* )                 */ ParenEnd,
-                /* { // :D :O        */ ScopeStart, Comment
+                /* {// :D :D\n}\n    */ ScopeStart, SlashComment, ScopeEnd,
+                /* fn f() {}         */ Fn, FnName, ParenStart, ParenEnd, ScopeStart, ScopeEnd
             ]
-        };
-
-        assert_eq!(tokens, expectation);
+        );
     }
 }
 

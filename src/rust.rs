@@ -5,10 +5,16 @@ compile_error!("wait what");
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Token {
-    StartOfLine,
-    Whitespace,
+    Nothing,
 
-    Comment,
+    Spaces,
+    Tabs,
+    Newlines,
+
+    SlashComment,
+    StarCommentStart,
+    StarCommentEnd,
+
     Pub,
     Fn,
     FnName,
@@ -34,27 +40,48 @@ pub enum Token {
     Number,
     Character,
     String,
-    Semicolon
+    Semicolon,
+    ScopeEnd
+}
+
+impl Token {
+    fn is_whitespace(&self) -> bool {
+        use Token::*;
+
+        matches!(self, Spaces | Tabs)
+    }
+
+    fn is_comment(&self) -> bool {
+        use Token::*;
+
+        matches!(self, SlashComment | StarCommentStart | StarCommentEnd)
+    }
 }
 
 fn searcher(start_char: char) -> impl Fn(char) -> bool {
     match start_char {
-        ' '             => | ch| ch != ' ',
-        ':'             => | ch| ch != ':',
-        '<' | '(' | '&' => |_ch| true,
-        _               => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
+        ' '                                => | ch| ch != ' ',
+        ':'                                => | ch| ch != ':',
+        '<' | '(' | '&' | '{' | '}' | '\n' => |_ch| true,
+        _                                  => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
     }
 }
 
-fn tokenise_word(last_token: Token, word: &'static str) -> Token {
+fn tokenise_word(last_token: Token, word: &str) -> Token {
     use Token::*;
 
+    // TODO: do this differently?
+    if word == "\n" {
+        return Newlines;
+    }
+
+    // TODO: refactor to factor in (haha) mixed spaces and tabs
     if word.chars().all(|ch| ch == ' ') {
-        return Whitespace;
+        return Spaces;
     }
 
     match last_token {
-        StartOfLine => {
+        Nothing => {
             match word {
                 "pub"  => Pub,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
@@ -69,6 +96,7 @@ fn tokenise_word(last_token: Token, word: &'static str) -> Token {
         Fn => FnName,
         FnName => {
             match word {
+                "("    => ParenStart,
                 "::"   => DoubleColon,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
@@ -98,6 +126,7 @@ fn tokenise_word(last_token: Token, word: &'static str) -> Token {
         },
         ParenStart => {
             match word {
+                ")"    => ParenEnd,
                 "&"    => Reference,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
@@ -141,7 +170,14 @@ fn tokenise_word(last_token: Token, word: &'static str) -> Token {
         },
         ScopeStart => {
             match word {
-                "//"   => Comment,
+                "//"   => SlashComment,
+                "}"    => ScopeEnd,
+                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+            }
+        },
+        ScopeEnd => {
+            match word {
+                "fn"   => Fn,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
@@ -149,41 +185,66 @@ fn tokenise_word(last_token: Token, word: &'static str) -> Token {
     }
 }
 
-fn next_token(line: &'static str, start: &mut usize, last_token: Token) -> Option<Token> {
-    if last_token == Token::Comment {
+fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_comment_token: Token) -> Option<Token> {
+    if *start == input.len() {
         return None;
     }
 
-    println!("{}\x1b[7m{}\x1b[0m", &line[..*start], &line[*start..]);
-    let start_char     = line.chars().nth(*start).unwrap();
+    if last_token == Token::SlashComment {
+        if let Some(i) = input[*start..].find('\n') {
+            *start += i;
+            println!("\x1b[31madded {i}\x1b[0m");
+            return Some(Token::Newlines);
+        }
+        println!("\x1b[31mnone 1\x1b[0m");
+        return None;
+    }
+    println!("\x1b[32mgood\x1b[0m");
 
-    let Some(mut end)  = line[*start+1..].find(searcher(start_char)) else { return None; };
-    end               += 1;
-    let word           = &line[*start..*start + end];
+    println!("\x1b[34m{}\x1b[7m{}\x1b[0m", &input[..*start], &input[*start..]);
+    let start_char = input.chars().nth(*start).unwrap();
+
+    let end = {
+        if let Some(i) = input[*start+1..].find(searcher(start_char)) {
+            *start + i + 1
+        } else {
+            input.len()
+        }
+    };
+
+    let word           = &input[*start..end];
     println!("word     = `{word}`");
 
-    let token          = tokenise_word(last_token, word);
+    let token          = tokenise_word(last_non_comment_token, word);
     println!("token    = `{token:?}`");
 
     println!();
 
-    *start += end;
+    *start = end;
     Some(token)
 }
 
-pub fn tokenise_line(line: &'static str) -> Vec<Token> {
-    let mut tokens     = vec![];
-    let mut start      = 0;
-    let mut last_start = 0;
-    let mut last_token = Token::StartOfLine;
+pub fn parse(input: &str) -> Vec<Token> {
+    let mut tokens                 = vec![];
+    let mut start                  = 0;
+    let mut last_start             = 0;
+    let mut last_token             = Token::Nothing;
+    let mut last_non_comment_token = Token::Nothing;
 
-    while let Some(token) = next_token(line, &mut start, last_token) {
-        if start == last_start {
-            panic!("infinite loop detected");
-        }
+    while let Some(token) = next_token(input, &mut start, last_token, last_non_comment_token) {
+        assert_ne!(start, last_start, "infinite logic loop detected");
+
         last_start = start;
 
-        if !matches!(token, Token::Whitespace) {
+        if token == Token::Newlines {
+            last_token = last_non_comment_token;
+            continue;
+        }
+
+        if !token.is_whitespace() {
+            if !token.is_comment() {
+                last_non_comment_token = token;
+            }
             last_token = token;
             tokens.push(token);
         }
