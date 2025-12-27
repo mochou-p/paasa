@@ -58,12 +58,13 @@ impl Token {
     }
 }
 
-fn searcher(start_char: char) -> impl Fn(char) -> bool {
+fn end_of_word_searcher(start_char: char) -> impl Fn(char) -> bool {
     match start_char {
-        ' '                                => | ch| ch != ' ',
-        ':'                                => | ch| ch != ':',
-        '<' | '(' | '&' | '{' | '}' | '\n' => |_ch| true,
-        _                                  => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
+        ' '                         => | ch| ch != ' ',
+        ':'                         => | ch| ch != ':',
+        '\n'                        => | ch| ch != '\n',
+        '<' | '(' | '&' | '{' | '}' => |_ch| true,
+        _                           => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
     }
 }
 
@@ -71,7 +72,8 @@ fn tokenise_word(last_token: Token, word: &str) -> Token {
     use Token::*;
 
     // TODO: do this differently?
-    if word == "\n" {
+    if word.chars().all(|ch| ch == '\n') {
+        println!("\x1b[33m------+- newlines from tokenise_word\x1b[0m");
         return Newlines;
     }
 
@@ -192,8 +194,9 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
 
     if last_token == Token::SlashComment {
         if let Some(i) = input[*start..].find('\n') {
-            *start += i;
+            *start += i + 1;
             println!("\x1b[31madded {i}\x1b[0m");
+            println!("\x1b[33m------+- newlines from next_token\x1b[0m");
             return Some(Token::Newlines);
         }
         println!("\x1b[31mnone 1\x1b[0m");
@@ -205,7 +208,7 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
     let start_char = input.chars().nth(*start).unwrap();
 
     let end = {
-        if let Some(i) = input[*start+1..].find(searcher(start_char)) {
+        if let Some(i) = input[*start+1..].find(end_of_word_searcher(start_char)) {
             *start + i + 1
         } else {
             input.len()
@@ -224,7 +227,24 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
     Some(token)
 }
 
-pub fn parse(input: &str) -> Vec<Token> {
+// NOTE: maybe a mask later
+pub struct ParseSettings {
+    pub include_whitespaces: bool,
+    pub include_newlines:    bool,
+    pub include_comments:    bool
+}
+
+impl Default for ParseSettings {
+    fn default() -> Self {
+        Self {
+            include_whitespaces: false,
+            include_newlines:    false,
+            include_comments:    true
+        }
+    }
+}
+
+fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
     let mut tokens                 = vec![];
     let mut start                  = 0;
     let mut last_start             = 0;
@@ -234,22 +254,46 @@ pub fn parse(input: &str) -> Vec<Token> {
     while let Some(token) = next_token(input, &mut start, last_token, last_non_comment_token) {
         assert_ne!(start, last_start, "infinite logic loop detected");
 
+        let is_whitespace = token.is_whitespace();
+        let is_newline    = token == Token::Newlines;
+        let is_comment    = token.is_comment();
+
         last_start = start;
+
+        // TODO: clean this up?
+        if
+            ( is_whitespace && settings.include_whitespaces)
+            ||
+            ( is_comment    && settings.include_comments)
+            ||
+            ( is_newline    && settings.include_newlines)
+            ||
+            (!is_whitespace && !is_newline && !is_comment)
+        {
+            tokens.push(token);
+        }
 
         if token == Token::Newlines {
             last_token = last_non_comment_token;
             continue;
         }
 
-        if !token.is_whitespace() {
-            if !token.is_comment() {
+        if !is_whitespace {
+            if !is_comment {
                 last_non_comment_token = token;
             }
             last_token = token;
-            tokens.push(token);
         }
     }
 
     tokens
+}
+
+pub fn parse(input: &str) -> Vec<Token> {
+    _parse(input, ParseSettings::default())
+}
+
+pub fn parse_with_settings(input: &str, settings: ParseSettings) -> Vec<Token> {
+    _parse(input, settings)
 }
 
