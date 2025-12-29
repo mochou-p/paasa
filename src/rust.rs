@@ -3,7 +3,7 @@
 #[cfg(not(feature = "rust"))]
 compile_error!("wait what");
 
-use super::{ParseSettings, TokenTrait};
+use super::{ParseSettings, ParseResult, TokenTrait, TokenError, TokenResult, NextTokenResult};
 
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Hash)]
@@ -81,169 +81,167 @@ fn end_of_word_searcher(start_char: char) -> impl Fn(char) -> bool {
 
 // TODO: refactor to keep it scaleable, for example check for things like brackets before the big match.
 //       also, check for invalid keywords. for example Let after Let is invalid, as it expects a VarName
-fn tokenise_word(last_token: Token, word: &str) -> Token {
-    use Token::*;
+fn tokenise_word<'a>(last_token: Token, word: &'a str) -> TokenResult<'a, Token> {
+    use {Token::*, TokenError::*};
 
     // TODO: thoroughly check all whitespace handling
     if word.chars().all(|ch| ch == '\n') {
         println!("\x1b[33m------+- newlines from tokenise_word\x1b[0m");
-        return Newlines;
+        return Ok(Newlines);
     }
     if word.chars().all(|ch| ch == ' ') {
-        return Spaces;
+        return Ok(Spaces);
     }
 
     match last_token {
         Nothing => {
             match word {
-                "//"     => SlashComment,
-                "pub"    => Pub,
-                "struct" => Struct,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "//"     =>  Ok(SlashComment),
+                "pub"    =>  Ok(Pub),
+                "struct" =>  Ok(Struct),
+                _        => Err(UnexpectedToken(last_token, word))
             }
         },
         Pub => {
             match word {
-                "fn"     => Fn,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "fn" =>  Ok(Fn),
+                _    => Err(UnexpectedToken(last_token, word))
             }
         },
-        Fn => FnName,
+        Fn => Ok(FnName),
         FnName => {
             match word {
-                "<"      => GenericStart,
-                "("      => ParenStart,
-                "::"     => DoubleColon,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "<" =>  Ok(GenericStart),
+                "(" =>  Ok(ParenStart),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
-        GenericStart => Type,
+        GenericStart => Ok(Type),
         Type => {
             match word {
-                "<"      => GenericStart,
-                ">"      => GenericEnd,
-                ","      => Comma,
-                ";"      => Semicolon,
-                "{"      => ScopeStart,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "<" =>  Ok(GenericStart),
+                ">" =>  Ok(GenericEnd),
+                "," =>  Ok(Comma),
+                ";" =>  Ok(Semicolon),
+                "{" =>  Ok(ScopeStart),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
         GenericEnd => {
             match word {
-                ">"      => GenericEnd,
-                "("      => ParenStart,
-                ")"      => ParenEnd,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ">" =>  Ok(GenericEnd),
+                "(" =>  Ok(ParenStart),
+                ")" =>  Ok(ParenEnd),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
         ParenStart => {
             match word {
-                ")"      => ParenEnd,
-                "&"      => Reference,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ")" =>  Ok(ParenEnd),
+                "&" =>  Ok(Reference),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
         Reference => {
             match word {
-                "mut"    => Mut,
-                _        => Type
+                "mut" => Ok(Mut),
+                _     => Ok(Type)
             }
         },
         Mut => {
             match word {
-                "self"   => SmallSelf,
-                _        => VarName, // TODO: this is wrong in arguments like before self, so make stuff more granular
+                "self" => Ok(SmallSelf),
+                _      => Ok(VarName) // TODO: this is wrong in arguments like before self, so make stuff more granular
             }
         },
         SmallSelf => {
             match word {
-                ","      => Comma,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "," =>  Ok(Comma),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
-        Comma => VarName,
+        Comma => Ok(VarName),
         VarName => {
             match word {
-                ":"      => Colon,
-                "="      => Equals,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ":" =>  Ok(Colon),
+                "=" =>  Ok(Equals),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
         Colon => {
             match word {
-                "&"      => Reference,
-                _        => Type
+                "&" => Ok(Reference),
+                _   => Ok(Type)
             }
         },
         ParenEnd => {
             match word {
-                "{"      => ScopeStart,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "{" =>  Ok(ScopeStart),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
         ScopeStart => {
             match word {
-                "//"     => SlashComment,
-                "}"      => ScopeEnd,
-                "pub"    => Pub,
-                "let"    => Let,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "//"  =>  Ok(SlashComment),
+                "}"   =>  Ok(ScopeEnd),
+                "pub" =>  Ok(Pub),
+                "let" =>  Ok(Let),
+                _     => Err(UnexpectedToken(last_token, word))
             }
         },
         ScopeEnd => {
             match word {
-                "}"      => ScopeEnd,
-                "fn"     => Fn,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "}"  =>  Ok(ScopeEnd),
+                "fn" =>  Ok(Fn),
+                _    => Err(UnexpectedToken(last_token, word))
             }
         },
-        Struct => Type,
+        Struct => Ok(Type),
         Semicolon => {
             match word {
-                "impl"   => Impl,
-                "let"    => Let,
-                "}"      => ScopeEnd,
-                _        => VarName
+                "impl" => Ok(Impl),
+                "let"  => Ok(Let),
+                "}"    => Ok(ScopeEnd),
+                _      => Ok(VarName)
             }
         },
-        Impl => Type, // TODO: or Trait if followed with `for`
+        Impl => Ok(Type), // TODO: or Trait if followed with `for`
         Let => {
             match word {
-                "mut"    => Mut,
-                _        => VarName
+                "mut" => Ok(Mut),
+                _     => Ok(VarName)
             }
         },
         Equals => {
             match word {
-                "false"  => Boolean,
-                "true"   => Boolean,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "false" | "true" =>  Ok(Boolean),
+                _                => Err(UnexpectedToken(last_token, word))
             }
         },
         Boolean => {
             match word {
-                ";"      => Semicolon,
-                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ";" =>  Ok(Semicolon),
+                _   => Err(UnexpectedToken(last_token, word))
             }
         },
-        _ => { panic!("missing arm for `{last_token:?}`"); }
+        _ => Err(ImplementationMissing(last_token))
     }
 }
 
-fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_comment_token: Token) -> Option<Token> {
+fn next_token<'a>(input: &'a str, start: &mut usize, last_token: Token, last_non_comment_token: Token) -> NextTokenResult<'a, Token> {
     if *start == input.len() {
-        return None;
+        return Ok(None);
     }
 
     if last_token == Token::SlashComment {
         let Some(i) = input[*start..].find('\n') else {
-            return None;
+            return Ok(None);
         };
 
         *start += i;
     }
 
-    println!("\x1b[34m{}\x1b[7m{}\x1b[0m", &input[..*start], &input[*start..]);
+    println!("\x1b[34m{}\x1b[91;1m^\x1b[34;7m{}\x1b[0m\x1b[91;1m$\x1b[0m", &input[..*start], &input[*start..]);
     let start_char = input.chars().nth(*start).unwrap();
 
     let end = {
@@ -253,67 +251,82 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
             input.len()
         }
     };
+    let word = &input[*start..end];
+    println!("word  = `{word}`");
 
-    let word           = &input[*start..end];
-    println!("word     = `{word}`");
+    let token_result = tokenise_word(last_non_comment_token, word);
 
-    let token          = tokenise_word(last_non_comment_token, word);
-    println!("token    = `{token:?}`");
+    let token = match token_result {
+        Ok (token)       => token,
+        Err(token_error) => {
+            return Err(token_error);
+        }
+    };
+
+    println!("token = `{token:?}`");
 
     println!();
 
     *start = end;
-    Some(token)
+    Ok(Some(token))
 }
 
-fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
+fn _parse<'a>(input: &'a str, settings: ParseSettings) -> ParseResult<'a, Token> {
     let mut tokens                 = vec![];
     let mut start                  = 0;
     let mut last_start             = 0;
     let mut last_token             = Token::default();
     let mut last_non_comment_token = Token::default();
 
-    while let Some(token) = next_token(input, &mut start, last_token, last_non_comment_token) {
-        assert_ne!(start, last_start, "infinite logic loop detected");
+    loop {
+        match next_token(input, &mut start, last_token, last_non_comment_token) {
+            Ok(Some(token)) => {
+                assert_ne!(start, last_start, "(dev error) infinite logic loop detected");
 
-        last_start = start;
+                last_start = start;
 
-        let is_whitespace = token.is_whitespace();
-        let is_newline    = token.is_newline();
-        let is_comment    = token.is_comment();
+                let is_whitespace = token.is_whitespace();
+                let is_newline    = token.is_newline();
+                let is_comment    = token.is_comment();
 
-        if
-            ( is_whitespace && settings.include_whitespaces)
-            ||
-            ( is_comment    && settings.include_comments)
-            ||
-            ( is_newline    && settings.include_newlines)
-            ||
-            (!is_whitespace && !is_newline && !is_comment)
-        {
-            tokens.push(token);
-        }
+                if
+                    ( is_whitespace && settings.include_whitespaces)
+                    ||
+                    ( is_comment    && settings.include_comments)
+                    ||
+                    ( is_newline    && settings.include_newlines)
+                    ||
+                    !token.is_special()
+                {
+                    tokens.push(token);
+                }
 
-        if is_newline {
-            last_token = last_non_comment_token;
-            continue;
-        }
-        if !is_whitespace {
-            if !is_comment {
-                last_non_comment_token = token;
+                if is_newline {
+                    last_token = last_non_comment_token;
+                    continue;
+                }
+                if !is_whitespace {
+                    if !is_comment {
+                        last_non_comment_token = token;
+                    }
+                    last_token = token;
+                }
+            },
+            Ok(None) => {
+                return Ok(tokens);
+            },
+            Err(token_error) => {
+                return Err((tokens, token_error));
             }
-            last_token = token;
         }
     }
-
-    tokens
 }
 
-pub fn parse(input: &str) -> Vec<Token> {
+pub fn parse<'a>(input: &'a str) -> ParseResult<'a, Token> {
     _parse(input, ParseSettings::default())
 }
 
-pub fn parse_with_settings(input: &str, settings: ParseSettings) -> Vec<Token> {
+pub fn parse_with_settings<'a>(input: &'a str, settings: ParseSettings) -> ParseResult<'a, Token> {
     _parse(input, settings)
 }
 

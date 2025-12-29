@@ -24,7 +24,7 @@ mod rust_tests {
     #[test]
     fn test_rust_parse() {
         assert_eq!(
-            parse(include_str!("files/rust_input.rs")),
+            parse(include_str!("files/rust_input.rs")).unwrap(),
             super::remove_special(include!("files/rust_output.rs"))
         );
     }
@@ -32,7 +32,7 @@ mod rust_tests {
     #[test]
     fn test_rust_parse_with_settings() {
         assert_eq!(
-            parse_with_settings(include_str!("files/rust_input.rs"), super::FULL_SETTINGS),
+            parse_with_settings(include_str!("files/rust_input.rs"), super::FULL_SETTINGS).unwrap(),
             include!("files/rust_output.rs")
         );
     }
