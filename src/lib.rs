@@ -3,7 +3,8 @@
 #[cfg(feature = "rust")]
 pub mod rust;
 
-pub trait TokenTrait: Copy {
+
+pub trait TokenTrait {
     fn is_whitespace(&self) -> bool;
     fn is_newline   (&self) -> bool;
     fn is_comment   (&self) -> bool;
@@ -12,6 +13,7 @@ pub trait TokenTrait: Copy {
         self.is_whitespace() || self.is_newline() || self.is_comment()
     }
 }
+
 // NOTE: maybe a mask later
 pub struct ParseSettings {
     pub include_whitespaces: bool,

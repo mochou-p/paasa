@@ -6,8 +6,9 @@ compile_error!("wait what");
 use super::{ParseSettings, TokenTrait};
 
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Hash)]
 pub enum Token {
+    #[default]
     Nothing,
 
     Spaces,
@@ -44,7 +45,9 @@ pub enum Token {
     Character,
     String,
     Semicolon,
-    ScopeEnd
+    ScopeEnd,
+    Struct,
+    Impl
 }
 
 impl TokenTrait for Token {
@@ -67,25 +70,25 @@ impl TokenTrait for Token {
 
 fn end_of_word_searcher(start_char: char) -> impl Fn(char) -> bool {
     match start_char {
-        ' '                         => | ch| ch != ' ',
-        ':'                         => | ch| ch != ':',
-        '\n'                        => | ch| ch != '\n',
-        '/' => |ch| ch != '/',
-        '<' | '(' | '&' | '{' | '}' => |_ch| true,
-        _                           => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
+        ' '                               => | ch| ch != ' ',
+        ':'                               => | ch| ch != ':',
+        '\n'                              => | ch| ch != '\n',
+        '/'                               => | ch| ch != '/',
+        '<' | '(' | '&' | '{' | '}' | ';' => |_ch| true,
+        _                                 => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',' | ';')
     }
 }
 
+// TODO: refactor to keep it scaleable, for example check for things like brackets before the big match.
+//       also, check for invalid keywords. for example Let after Let is invalid, as it expects a VarName
 fn tokenise_word(last_token: Token, word: &str) -> Token {
     use Token::*;
 
-    // TODO: do this differently?
+    // TODO: thoroughly check all whitespace handling
     if word.chars().all(|ch| ch == '\n') {
         println!("\x1b[33m------+- newlines from tokenise_word\x1b[0m");
         return Newlines;
     }
-
-    // TODO: refactor to factor in (haha) mixed spaces and tabs
     if word.chars().all(|ch| ch == ' ') {
         return Spaces;
     }
@@ -93,101 +96,137 @@ fn tokenise_word(last_token: Token, word: &str) -> Token {
     match last_token {
         Nothing => {
             match word {
-                "//"   => SlashComment,
-                "pub"  => Pub,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "//"     => SlashComment,
+                "pub"    => Pub,
+                "struct" => Struct,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         Pub => {
             match word {
-                "fn"   => Fn,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "fn"     => Fn,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         Fn => FnName,
         FnName => {
             match word {
-                "<"    => GenericStart,
-                "("    => ParenStart,
-                "::"   => DoubleColon,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "<"      => GenericStart,
+                "("      => ParenStart,
+                "::"     => DoubleColon,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         GenericStart => Type,
         Type => {
             match word {
-                "<"    => GenericStart,
-                ">"    => GenericEnd,
-                ","    => Comma,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "<"      => GenericStart,
+                ">"      => GenericEnd,
+                ","      => Comma,
+                ";"      => Semicolon,
+                "{"      => ScopeStart,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         GenericEnd => {
             match word {
-                ">"    => GenericEnd,
-                "("    => ParenStart,
-                ")"    => ParenEnd,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ">"      => GenericEnd,
+                "("      => ParenStart,
+                ")"      => ParenEnd,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         ParenStart => {
             match word {
-                ")"    => ParenEnd,
-                "&"    => Reference,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ")"      => ParenEnd,
+                "&"      => Reference,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         Reference => {
             match word {
-                "mut"  => Mut,
-                _      => Type
+                "mut"    => Mut,
+                _        => Type
             }
         },
         Mut => {
             match word {
-                "self" => SmallSelf,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "self"   => SmallSelf,
+                _        => VarName, // TODO: this is wrong in arguments like before self, so make stuff more granular
             }
         },
         SmallSelf => {
             match word {
-                ","    => Comma,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ","      => Comma,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         Comma => VarName,
         VarName => {
             match word {
-                ":"    => Colon,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                ":"      => Colon,
+                "="      => Equals,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         Colon => {
             match word {
-                "&"    => Reference,
-                _      => Type
+                "&"      => Reference,
+                _        => Type
             }
         },
         ParenEnd => {
             match word {
-                "{"    => ScopeStart,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "{"      => ScopeStart,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         ScopeStart => {
             match word {
-                "//"   => SlashComment,
-                "}"    => ScopeEnd,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "//"     => SlashComment,
+                "}"      => ScopeEnd,
+                "pub"    => Pub,
+                "let"    => Let,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
         ScopeEnd => {
             match word {
-                "fn"   => Fn,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+                "}"      => ScopeEnd,
+                "fn"     => Fn,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
-        _ => { panic!("tokenise _ arm `{last_token:?}`"); }
+        Struct => Type,
+        Semicolon => {
+            match word {
+                "impl"   => Impl,
+                "let"    => Let,
+                "}"      => ScopeEnd,
+                _        => VarName
+            }
+        },
+        Impl => Type, // TODO: or Trait if followed with `for`
+        Let => {
+            match word {
+                "mut"    => Mut,
+                _        => VarName
+            }
+        },
+        Equals => {
+            match word {
+                "false"  => Boolean,
+                "true"   => Boolean,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+            }
+        },
+        Boolean => {
+            match word {
+                ";"      => Semicolon,
+                _        => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
+            }
+        },
+        _ => { panic!("missing arm for `{last_token:?}`"); }
     }
 }
 
@@ -231,8 +270,8 @@ fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
     let mut tokens                 = vec![];
     let mut start                  = 0;
     let mut last_start             = 0;
-    let mut last_token             = Token::Nothing;
-    let mut last_non_comment_token = Token::Nothing;
+    let mut last_token             = Token::default();
+    let mut last_non_comment_token = Token::default();
 
     while let Some(token) = next_token(input, &mut start, last_token, last_non_comment_token) {
         assert_ne!(start, last_start, "infinite logic loop detected");
