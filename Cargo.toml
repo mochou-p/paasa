@@ -1,13 +1,14 @@
-#
+# paasa/Cargo.toml
 
 [package]
-name    = "paasa"
-edition = "2024"
-authors = ["mochou-p"]
-readme  = "README.md"
-license = "MIT OR Apache-2.0"
+name       = "paasa"
+edition    = "2024"
+authors    = ["mochou-p"]
+readme     = "README.md"
+license    = "MIT OR Apache-2.0"
+repository = "https://github.com/mochou-p/paasa"
 
 [features]
-all  = ["rust"]
-rust = []
+all        = ["rust"]
+rust       = []
 

@@ -1,7 +1,10 @@
-//
+// paasa/src/rust.rs
 
 #[cfg(not(feature = "rust"))]
 compile_error!("wait what");
+
+use super::{ParseSettings, TokenTrait};
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Token {
@@ -44,11 +47,15 @@ pub enum Token {
     ScopeEnd
 }
 
-impl Token {
+impl TokenTrait for Token {
     fn is_whitespace(&self) -> bool {
         use Token::*;
 
         matches!(self, Spaces | Tabs)
+    }
+
+    fn is_newline(&self) -> bool {
+        *self == Token::Newlines
     }
 
     fn is_comment(&self) -> bool {
@@ -63,6 +70,7 @@ fn end_of_word_searcher(start_char: char) -> impl Fn(char) -> bool {
         ' '                         => | ch| ch != ' ',
         ':'                         => | ch| ch != ':',
         '\n'                        => | ch| ch != '\n',
+        '/' => |ch| ch != '/',
         '<' | '(' | '&' | '{' | '}' => |_ch| true,
         _                           => | ch| matches!(ch, ' ' | ':' | '<' | '>' | '(' | ')' | ',')
     }
@@ -85,6 +93,7 @@ fn tokenise_word(last_token: Token, word: &str) -> Token {
     match last_token {
         Nothing => {
             match word {
+                "//"   => SlashComment,
                 "pub"  => Pub,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
@@ -98,14 +107,9 @@ fn tokenise_word(last_token: Token, word: &str) -> Token {
         Fn => FnName,
         FnName => {
             match word {
+                "<"    => GenericStart,
                 "("    => ParenStart,
                 "::"   => DoubleColon,
-                _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
-            }
-        },
-        DoubleColon => {
-            match word {
-                "<"    => GenericStart,
                 _      => { panic!("tokenise {last_token:?} _ arm `{word}`"); }
             }
         },
@@ -193,16 +197,12 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
     }
 
     if last_token == Token::SlashComment {
-        if let Some(i) = input[*start..].find('\n') {
-            *start += i + 1;
-            println!("\x1b[31madded {i}\x1b[0m");
-            println!("\x1b[33m------+- newlines from next_token\x1b[0m");
-            return Some(Token::Newlines);
-        }
-        println!("\x1b[31mnone 1\x1b[0m");
-        return None;
+        let Some(i) = input[*start..].find('\n') else {
+            return None;
+        };
+
+        *start += i;
     }
-    println!("\x1b[32mgood\x1b[0m");
 
     println!("\x1b[34m{}\x1b[7m{}\x1b[0m", &input[..*start], &input[*start..]);
     let start_char = input.chars().nth(*start).unwrap();
@@ -227,23 +227,6 @@ fn next_token(input: &str, start: &mut usize, last_token: Token, last_non_commen
     Some(token)
 }
 
-// NOTE: maybe a mask later
-pub struct ParseSettings {
-    pub include_whitespaces: bool,
-    pub include_newlines:    bool,
-    pub include_comments:    bool
-}
-
-impl Default for ParseSettings {
-    fn default() -> Self {
-        Self {
-            include_whitespaces: false,
-            include_newlines:    false,
-            include_comments:    true
-        }
-    }
-}
-
 fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
     let mut tokens                 = vec![];
     let mut start                  = 0;
@@ -254,13 +237,12 @@ fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
     while let Some(token) = next_token(input, &mut start, last_token, last_non_comment_token) {
         assert_ne!(start, last_start, "infinite logic loop detected");
 
-        let is_whitespace = token.is_whitespace();
-        let is_newline    = token == Token::Newlines;
-        let is_comment    = token.is_comment();
-
         last_start = start;
 
-        // TODO: clean this up?
+        let is_whitespace = token.is_whitespace();
+        let is_newline    = token.is_newline();
+        let is_comment    = token.is_comment();
+
         if
             ( is_whitespace && settings.include_whitespaces)
             ||
@@ -273,11 +255,10 @@ fn _parse(input: &str, settings: ParseSettings) -> Vec<Token> {
             tokens.push(token);
         }
 
-        if token == Token::Newlines {
+        if is_newline {
             last_token = last_non_comment_token;
             continue;
         }
-
         if !is_whitespace {
             if !is_comment {
                 last_non_comment_token = token;
