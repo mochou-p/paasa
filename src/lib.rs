@@ -1,7 +1,10 @@
 // paasa/src/lib.rs
 
-#[cfg(not(any(feature = "rust")))]
-compile_error!("atleast one feature needs to be enabled. available features: [rust]");
+#[cfg(not(any(feature = "lua", feature = "rust")))]
+compile_error!("atleast one feature needs to be enabled. available features: [lua, rust]");
+
+#[cfg(feature = "lua")]
+pub mod lua;
 
 #[cfg(feature = "rust")]
 pub mod rust;
@@ -24,8 +27,7 @@ pub trait TokenTrait: Clone + Copy + Default + Debug + PartialEq + Hash {
         self.is_whitespace() || self.is_newline() || self.is_comment()
     }
 
-    // NOTE: these could be somehow private i guess?
-    fn     is_slash_comment(&self)                           -> bool;
+    fn    is_inline_comment(&self)                           -> bool;
     fn    tokenise_word<'a>(last_token: Self, word: &'a str) -> TokenResult<'a, Self>;
     fn end_of_word_searcher(start_char: char)                -> impl Fn(char) -> bool;
 }
@@ -63,21 +65,28 @@ pub struct ParseSettings {
     pub include_comments:    bool
 }
 
+impl ParseSettings {
+    pub fn full() -> Self {
+        Self {
+            include_whitespaces: true,
+            include_newlines:    true,
+            include_comments:    true
+        }
+    }
+}
+
 fn next_token<'a, T: TokenTrait>(input: &'a str, start: &mut usize, last_token: T, last_non_comment_token: T) -> NextTokenResult<'a, T> {
     if *start == input.len() {
         return Ok(None);
     }
 
-    if last_token.is_slash_comment() {
+    if last_token.is_inline_comment() {
         let Some(i) = input[*start..].find('\n') else {
             return Ok(None);
         };
 
         *start += i;
     }
-
-    #[cfg(test)]
-    println!("\x1b[34m{}\x1b[91;1m^\x1b[34;7m{}\x1b[0m\x1b[91;1m$\x1b[0m", &input[..*start], &input[*start..]);
 
     let start_char = input.chars().nth(*start).unwrap();
 
@@ -90,9 +99,6 @@ fn next_token<'a, T: TokenTrait>(input: &'a str, start: &mut usize, last_token: 
     };
     let word = &input[*start..end];
 
-    #[cfg(test)]
-    println!("word  = `{word}`");
-
     let token_result = T::tokenise_word(last_non_comment_token, word);
 
     let token = match token_result {
@@ -101,9 +107,6 @@ fn next_token<'a, T: TokenTrait>(input: &'a str, start: &mut usize, last_token: 
             return Err(token_error);
         }
     };
-
-    #[cfg(test)]
-    println!("token = `{token:?}`\n");
 
     *start = end;
     Ok(Some(token))

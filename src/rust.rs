@@ -1,9 +1,7 @@
 // paasa/src/rust.rs
 
 #[cfg(not(feature = "rust"))]
-compile_error!("wait what");
-
-use super::{TokenTrait, TokenError, TokenResult};
+compile_error!("unexpected import error, feature mismatch");
 
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Hash)]
@@ -50,7 +48,7 @@ pub enum Token {
     Impl
 }
 
-impl TokenTrait for Token {
+impl super::TokenTrait for Token {
     fn is_whitespace(&self) -> bool {
         use Token::*;
 
@@ -67,7 +65,7 @@ impl TokenTrait for Token {
         matches!(self, SlashComment | StarCommentStart | StarCommentEnd)
     }
 
-    fn is_slash_comment(&self) -> bool {
+    fn is_inline_comment(&self) -> bool {
         *self == Token::SlashComment
     }
 
@@ -82,17 +80,12 @@ impl TokenTrait for Token {
         }
     }
 
-    // TODO: refactor to keep it scaleable, for example check for things like brackets before the big match.
-    //       also, check for invalid keywords. for example Let after Let is invalid, as it expects a VarName
-    fn tokenise_word<'a>(last_token: Self, word: &'a str) -> TokenResult<'a, Self> {
-        use {Token::*, TokenError::*};
+    fn tokenise_word<'a>(last_token: Self, word: &'a str) -> super::TokenResult<'a, Self> {
+        use {Token::*, super::TokenError::*};
 
-        // TODO: thoroughly check all whitespace handling
+        // TODO: move whitespace handling to lib.rs
 
         if word.chars().all(|ch| ch == '\n') {
-            #[cfg(test)]
-            println!("\x1b[33m------+- newlines from tokenise_word\x1b[0m");
-
             return Ok(Newlines);
         }
 

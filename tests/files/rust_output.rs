@@ -1,4 +1,4 @@
-[
+vec![
     SlashComment, Newlines,
 
     Struct, Spaces, Type, Semicolon, Newlines,

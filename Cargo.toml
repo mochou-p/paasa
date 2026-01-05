@@ -9,6 +9,7 @@ license    = "MIT OR Apache-2.0"
 repository = "https://github.com/mochou-p/paasa"
 
 [features]
-all        = ["rust"]
+all        = ["lua", "rust"]
+lua        = []
 rust       = []
 

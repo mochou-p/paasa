@@ -30,10 +30,12 @@ fn main() {
 
 ###### ✅ - considered complete, 🚧 - work in progress, ⏳ - planned
 
-- 🚧 rust
-- ⏳ c
-- ⏳ toml
-- ⏳ json
+- 🚧 `lua`
+- 🚧 `rust`
+- ⏳ `c`
+- ⏳ `odin`
+- ⏳ `toml`
+- ⏳ `json`
 
 > [!NOTE]
 > you can also enable the `full` feature,  

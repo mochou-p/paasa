@@ -1,55 +1,81 @@
-// paasa/tests/rust.rs
+// paasa/tests/all-features.rs
 
-use paasa::{ParseSettings, TokenTrait};
+#[cfg(not(any(feature = "lua", feature = "rust")))]
+compile_error!("atleast one feature needs to be enabled. available features: [lua, rust]");
+
+use paasa::TokenTrait;
 
 
-const FULL_SETTINGS: ParseSettings = ParseSettings {
-    include_whitespaces: true,
-    include_newlines:    true,
-    include_comments:    true
-};
+macro_rules! test_pair {
+    ($feature:tt, $extension:expr) => {
+        mod $feature {
+            use paasa::{parse, parse_with_settings, ParseSettings};
+            use paasa::$feature::Token::{self, *};
 
-fn remove_special<const N: usize, T: TokenTrait>(tokens: [T; N]) -> Vec<T> {
+
+            #[test]
+            fn test_parse() {
+                assert_eq!(
+                    parse::<Token>(
+                        include_str!(
+                            concat!(
+                                "files/",
+                                stringify!($feature),
+                                "_input.",
+                                $extension
+                            )
+                        )
+                    ),
+                    Ok(
+                        super::remove_special(
+                            include!(
+                                concat!(
+                                    "files/",
+                                    stringify!($feature),
+                                    "_output.rs"
+                                )
+                            )
+                        )
+                    )
+                );
+            }
+
+            #[test]
+            fn test_parse_with_settings() {
+                assert_eq!(
+                    parse_with_settings::<Token>(
+                        include_str!(
+                            concat!(
+                                "files/",
+                                stringify!($feature),
+                                "_input.",
+                                $extension
+                            )
+                        ),
+                        ParseSettings::full()
+                    ),
+                    Ok(
+                        include!(
+                            concat!(
+                                "files/",
+                                stringify!($feature),
+                                "_output.rs"
+                            )
+                        )
+                    )
+                );
+            }
+        }
+    };
+}
+
+fn remove_special<T: TokenTrait>(tokens: Vec<T>) -> Vec<T> {
     tokens
         .into_iter()
         .filter(|token| !token.is_special())
         .collect()
 }
 
-#[cfg(feature = "rust")]
-mod rust {
-    use paasa::{parse, parse_with_settings};
-    use paasa::rust::Token::{self, *};
-
-    #[test]
-    fn test_parse() {
-        assert_eq!(
-            parse::<Token>(include_str!("files/rust_input.rs")).unwrap(),
-            super::remove_special(include!("files/rust_output.rs"))
-        );
-    }
-
-    #[test]
-    fn test_parse_with_settings() {
-        assert_eq!(
-            parse_with_settings::<Token>(include_str!("files/rust_input.rs"), super::FULL_SETTINGS).unwrap(),
-            include!("files/rust_output.rs")
-        );
-    }
-}
-
-mod project_readme {
-    #[cfg(feature = "rust")]
-    mod rust {
-        #[test]
-        fn example() {
-            use paasa::{parse, rust::Token::{self, *}};
-
-            let tokens      = parse::<Token>("fn hey() {}");
-            let expectation = vec![Fn, FnName, ParenStart, ParenEnd, ScopeStart, ScopeEnd];
-
-            assert_eq!(tokens, Ok(expectation));
-        }
-    }
-}
+#[cfg(feature = "lua" )] test_pair!(lua,  "lua");
+#[cfg(feature = "rust")] test_pair!(rust, "rs");
 
